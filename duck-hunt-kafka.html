@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Duck Hunt: The Latency Edition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sky-top:#0F3A38;
+    --sky-mid:#1D5C52;
+    --sky-horizon:#E8A33D;
+    --marsh:#22392E;
+    --marsh-dark:#152A20;
+    --ink:#1A1410;
+    --parchment:#F2E9D8;
+    --parchment-dim:#E4D8C0;
+    --signal-red:#E8543C;
+    --queue-amber:#D9A441;
+    --confirm-green:#5FA57A;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--marsh-dark);font-family:'Space Grotesk',sans-serif;color:var(--parchment);}
+  .wrap{display:flex;flex-direction:column;align-items:center;padding:20px 16px 40px;gap:14px;}
+  .titlebar{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;justify-content:center;text-align:center;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:44px;letter-spacing:2px;margin:0;color:var(--parchment);line-height:1;}
+  .subtitle{font-size:13px;color:var(--parchment-dim);letter-spacing:0.5px;max-width:600px;margin:0 auto;opacity:0.85;}
+  .stage{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+  .game-col{display:flex;flex-direction:column;gap:10px;}
+  .hud{display:flex;justify-content:space-between;align-items:center;background:var(--parchment);color:var(--ink);border-radius:6px;padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:13px;gap:12px;flex-wrap:wrap;}
+  .mode-toggle{display:flex;background:var(--marsh-dark);border-radius:999px;padding:3px;gap:3px;flex-wrap:wrap;}
+  .mode-btn{font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:12px;border:none;background:transparent;color:var(--parchment-dim);padding:8px 12px;border-radius:999px;cursor:pointer;transition:background .15s ease,color .15s ease,opacity .15s ease;white-space:nowrap;}
+  .mode-btn.active.delayed{background:var(--queue-amber);color:#3A2705;}
+  .mode-btn.active.realtime{background:var(--confirm-green);color:#0E2A19;}
+  .mode-btn.active.accuracy{background:var(--signal-red);color:#3A0E08;}
+  .mode-btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .stats{display:flex;gap:14px;font-weight:500;}
+  .stats span b{display:block;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;}
+  .stats span{font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:#5B4E3A;text-align:center;}
+  #canvasWrap{position:relative;border-radius:8px;overflow:hidden;border:3px solid var(--marsh);cursor:none;}
+  canvas{display:block;}
+  .banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:12px;background:rgba(26,20,16,0.75);color:var(--parchment);padding:5px 12px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity .2s ease;text-align:center;}
+  .banner.show{opacity:1;}
+  .log-col{width:280px;background:var(--ink);border-radius:8px;border:1px solid #3a2f22;display:flex;flex-direction:column;height:500px;}
+  .log-head{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--parchment-dim);padding:10px 12px;border-bottom:1px solid #3a2f22;display:flex;justify-content:space-between;}
+  .log-head b{color:var(--queue-amber);font-weight:600;}
+  .log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.55;display:flex;flex-direction:column-reverse;}
+  .log-body::-webkit-scrollbar{width:6px;}
+  .log-body::-webkit-scrollbar-thumb{background:#3a2f22;border-radius:3px;}
+  .log-line{padding:2px 0;border-bottom:1px dashed rgba(255,255,255,0.05);word-break:break-word;}
+  .log-line .tag{font-weight:600;padding:0 4px;border-radius:3px;margin-right:6px;}
+  .tag.queued{background:rgba(217,164,65,0.18);color:var(--queue-amber);}
+  .tag.hit{background:rgba(95,165,122,0.2);color:var(--confirm-green);}
+  .tag.miss{background:rgba(232,84,60,0.2);color:var(--signal-red);}
+  .tag.info{background:rgba(255,255,255,0.08);color:var(--parchment-dim);}
+  .explain{max-width:900px;background:var(--parchment);color:var(--ink);border-radius:8px;padding:14px 18px;font-size:13px;line-height:1.6;}
+  .explain b{color:var(--signal-red);}
+  .board{max-width:900px;width:100%;background:var(--parchment);color:var(--ink);border-radius:8px;padding:14px 18px;}
+  .board h2{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;margin:0 0 8px;}
+  table.lb{width:100%;border-collapse:collapse;font-size:12.5px;font-family:'IBM Plex Mono',monospace;}
+  table.lb th{text-align:left;color:#5B4E3A;font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;padding:4px 6px;border-bottom:1px solid rgba(26,20,16,0.2);}
+  table.lb td{padding:5px 6px;border-bottom:1px solid rgba(26,20,16,0.08);}
+  table.lb tr:first-child td{font-weight:600;}
+  .empty-row td{color:#8a7c63;font-style:italic;}
+  .overlay{position:absolute;inset:0;background:rgba(21,42,32,0.92);display:flex;align-items:center;justify-content:center;z-index:5;}
+  .overlay.hidden{display:none;}
+  .modal{background:var(--parchment);color:var(--ink);border-radius:8px;padding:22px 24px;width:300px;text-align:center;}
+  .modal h3{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;margin:0 0 6px;}
+  .modal p{font-size:12.5px;color:#5B4E3A;margin:0 0 14px;line-height:1.5;}
+  .modal input{width:100%;padding:9px 10px;border-radius:5px;border:1px solid #b9ab8c;font-family:'Space Grotesk',sans-serif;font-size:14px;margin-bottom:10px;}
+  .modal button{width:100%;padding:10px;border:none;border-radius:5px;background:var(--signal-red);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:13.5px;cursor:pointer;}
+  .modal button:disabled{opacity:0.4;cursor:not-allowed;}
+  .modal .btn-row{display:flex;gap:8px;}
+  .modal .btn-row button{width:auto;flex:1;}
+  .modal .result-grid{display:flex;justify-content:space-between;margin-bottom:14px;}
+  .modal .result-grid div{text-align:center;}
+  .modal .result-grid b{display:block;font-family:'Bebas Neue',sans-serif;font-size:22px;}
+  .modal .result-grid span{font-size:9.5px;color:#5B4E3A;text-transform:uppercase;}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;}
+  .welcome{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:500;color:var(--parchment);background:rgba(217,164,65,0.14);border:1px solid rgba(217,164,65,0.35);border-radius:6px;padding:8px 14px;}
+  .welcome.hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="titlebar">
+    <h1>Duck hunt: the latency edition</h1>
+  </div>
+  <p class="subtitle">Same gun, same ducks. Batched mode queues your click for 3 seconds and resolves it against whatever's there when it consumes &mdash; so leading a duck (aiming ahead of it) can pay off. Real-time fires the instant you click. Gold-ringed ducks fly faster and are worth 3&times;, and consecutive hits build a streak multiplier. Accuracy test mixes batched/real-time at random, per target, color-coded, over 2 minutes.</p>
+
+  <div class="stage">
+    <div class="game-col">
+      <div class="welcome hidden" id="welcomeMsg"></div>
+      <div class="hud">
+        <div class="mode-toggle">
+          <button class="mode-btn delayed active" id="btnDelayed">Batched (3s delay)</button>
+          <button class="mode-btn realtime" id="btnRealtime">Real-time</button>
+          <button class="mode-btn accuracy" id="btnAccuracy">Accuracy test (2 min)</button>
+        </div>
+        <div class="stats">
+          <span>Score<b id="statScore">0</b></span>
+          <span>Shots<b id="statShots">0</b></span>
+          <span>Hits<b id="statHits">0</b></span>
+          <span>Accuracy<b id="statAcc">0%</b></span>
+          <span>Streak<b id="statStreak">0</b></span>
+          <span>Time<b id="statTime">&ndash;&ndash;</b></span>
+        </div>
+        <button id="muteBtn" title="Toggle sound" style="border:none;background:transparent;font-size:18px;cursor:pointer;padding:2px 4px;">&#128266;</button>
+      </div>
+      <div id="canvasWrap">
+        <canvas id="game" width="640" height="500"></canvas>
+        <div class="banner" id="banner"></div>
+
+        <div class="overlay hidden" id="nameOverlay">
+          <div class="modal">
+            <h3>Accuracy test</h3>
+            <p><span class="swatch" style="background:#5FA57A"></span>Green ducks resolve instantly.<br><span class="swatch" style="background:#E8543C"></span>Red ducks resolve 3s later &mdash; lead them.<br>Gold-ringed ducks are worth 3&times;. Hit streaks multiply your score. 2 minutes on the clock.</p>
+            <label for="nameInput" style="display:block;text-align:left;font-size:11.5px;font-weight:600;color:#5B4E3A;margin-bottom:4px;">Enter Username:</label>
+            <input type="text" id="nameInput" placeholder="Enter Username:" maxlength="20" autocomplete="off">
+            <button id="startTestBtn" disabled>Start test</button>
+          </div>
+        </div>
+
+        <div class="overlay hidden" id="resultOverlay">
+          <div class="modal">
+            <h3>Time's up</h3>
+            <p id="resultName"></p>
+            <div class="result-grid">
+              <div><b id="resScore">0</b><span>Score</span></div>
+              <div><b id="resAcc">0%</b><span>Accuracy</span></div>
+              <div><b id="resHits">0/0</b><span>Hits/Shots</span></div>
+            </div>
+            <p id="resultBreakdown" style="font-size:11.5px;"></p>
+            <div class="btn-row">
+              <button id="completeBtn" style="background:var(--marsh);">Complete</button>
+              <button id="replayBtn">Play Again</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="log-col">
+      <div class="log-head"><span>topic: <b>gun-shots</b></span><span id="logMode">partition: batched</span></div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+  </div>
+
+  <div class="explain">
+    This is a literal illustration of an event-driven system. Every click is a <b>produced event</b>. In <b>batched mode</b> it sits in a queue for 3 seconds before a consumer resolves it against <b>whatever duck is actually there when it consumes</b> &mdash; not the one you clicked on. That's why leading a duck (clicking ahead of its flight path) can land a hit even in batched mode: you're predicting future state instead of reacting to stale state. In <b>real-time mode</b> the event is processed the instant it's produced, against current state. <b>Priority ducks</b> (gold ring, faster, smaller target) are worth 3&times; the points, and a <b>hit streak</b> builds a score multiplier that resets on a miss &mdash; both reward staying accurate under pressure rather than just clicking fast. <b>Accuracy test</b> assigns each duck's processing path at random and color-codes it, then scores your accuracy on the clock.
+  </div>
+
+  <div class="board">
+    <h2>Accuracy test leaderboard</h2>
+    <table class="lb">
+      <thead><tr><th>#</th><th>Name</th><th>Accuracy</th><th>Hits/Shots</th><th>Score</th><th>Date</th></tr></thead>
+      <tbody id="lbBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const HORIZON = H * 0.72;
+  const LB_KEY = 'duckhunt_leaderboard_v1';
+  const TEST_DURATION = 120000;
+  const REPLAY_DURATION = 60000;
+
+  let gameMode = 'delayed';
+  let score = 0, shots = 0, hits = 0;
+  let breakdown = { delayed:{shots:0,hits:0}, realtime:{shots:0,hits:0} };
+  let ducks = [];
+  let pending = [];
+  let floaters = [];
+  let mouse = {x: W/2, y: H/2};
+  let lastSpawn = 0;
+  let duckId = 0;
+  let muzzleFlash = null;
+
+  let accuracyActive = false;
+  let accuracyTimeLeft = TEST_DURATION;
+  let playerName = '';
+  const SESSION_NAME_KEY = 'duckhunt_session_username';
+
+  const welcomeMsg = document.getElementById('welcomeMsg');
+  function showWelcome(name){
+    welcomeMsg.textContent = 'Hello ' + name;
+    welcomeMsg.classList.remove('hidden');
+  }
+
+  let streak = 0;
+  let soundOn = true;
+  let audioCtx = null;
+
+  function comboMultiplier(s){
+    if(s >= 8) return 3;
+    if(s >= 5) return 2;
+    if(s >= 3) return 1.5;
+    return 1;
+  }
+
+  function ensureAudio(){
+    if(!audioCtx){
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if(!Ctx) return;
+      audioCtx = new Ctx();
+    }
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  function tone(freq1, freq2, duration, type, peak, delay){
+    if(!soundOn) return;
+    ensureAudio();
+    if(!audioCtx) return;
+    const t0 = audioCtx.currentTime + (delay || 0);
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq1, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(freq2, 1), t0 + duration);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.03);
+  }
+
+  function sfxShot(){ tone(950, 160, 0.09, 'square', 0.05); }
+  function sfxQueued(){ tone(600, 600, 0.06, 'sine', 0.025); }
+  function sfxConsume(){ tone(760, 760, 0.05, 'sine', 0.03); }
+  function sfxHit(){ tone(560, 140, 0.14, 'square', 0.05); tone(95, 55, 0.13, 'sine', 0.06, 0.02); }
+  function sfxMiss(){ tone(300, 70, 0.12, 'sawtooth', 0.03); }
+  function sfxCombo(){ tone(700, 900, 0.08, 'triangle', 0.045); tone(900, 1250, 0.08, 'triangle', 0.045, 0.09); }
+
+  const logBody = document.getElementById('logBody');
+  const logMode = document.getElementById('logMode');
+  const banner = document.getElementById('banner');
+  const nameOverlay = document.getElementById('nameOverlay');
+  const resultOverlay = document.getElementById('resultOverlay');
+  const nameInput = document.getElementById('nameInput');
+  const startTestBtn = document.getElementById('startTestBtn');
+  const btnDelayed = document.getElementById('btnDelayed');
+  const btnRealtime = document.getElementById('btnRealtime');
+  const btnAccuracy = document.getElementById('btnAccuracy');
+  let bannerTimer = null;
+
+  function fmtTime(t){
+    const d = new Date(t);
+    return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  }
+
+  function log(tag, text){
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    const t = document.createElement('span');
+    t.className = 'tag ' + tag;
+    t.textContent = tag.toUpperCase();
+    line.appendChild(t);
+    line.appendChild(document.createTextNode(fmtTime(Date.now()) + '  ' + text));
+    logBody.insertBefore(line, logBody.firstChild);
+    while(logBody.children.length > 60) logBody.removeChild(logBody.lastChild);
+  }
+
+  function showBanner(text){
+    banner.textContent = text;
+    banner.classList.add('show');
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(()=> banner.classList.remove('show'), 1400);
+  }
+
+  function updateStats(){
+    document.getElementById('statScore').textContent = score;
+    document.getElementById('statShots').textContent = shots;
+    document.getElementById('statHits').textContent = hits;
+    document.getElementById('statAcc').textContent = shots ? Math.round(hits/shots*100) + '%' : '0%';
+    if(gameMode === 'accuracy' && accuracyActive){
+      document.getElementById('statTime').textContent = fmtClock(accuracyTimeLeft);
+    } else if(gameMode === 'accuracy'){
+      document.getElementById('statTime').textContent = fmtClock(TEST_DURATION);
+    } else {
+      document.getElementById('statTime').textContent = '\u2013\u2013';
+    }
+    const mult = comboMultiplier(streak);
+    document.getElementById('statStreak').textContent = streak + (mult > 1 ? ' \u00d7' + mult : '');
+  }
+
+  function resetRoundState(){
+    score=0; shots=0; hits=0; pending=[]; ducks=[]; floaters=[]; streak=0;
+    breakdown = { delayed:{shots:0,hits:0}, realtime:{shots:0,hits:0} };
+    logBody.innerHTML = '';
+    updateStats();
+  }
+
+  function setButtonsDisabled(disabled){
+    btnDelayed.disabled = disabled;
+    btnRealtime.disabled = disabled;
+  }
+
+  function setMode(m){
+    if(accuracyActive) return;
+    gameMode = m;
+    btnDelayed.classList.toggle('active', m==='delayed');
+    btnRealtime.classList.toggle('active', m==='realtime');
+    btnAccuracy.classList.toggle('active', m==='accuracy');
+    logMode.textContent = 'partition: ' + m;
+    resetRoundState();
+    log('info', m==='delayed' ? 'switched to batched consumer (3000ms lag)' : 'switched to real-time consumer (0ms lag)');
+    showBanner(m==='delayed' ? 'Mode: batched \u2014 3s consumer lag' : 'Mode: real-time \u2014 instant consumer');
+  }
+
+  btnDelayed.addEventListener('click', ()=> setMode('delayed'));
+  btnRealtime.addEventListener('click', ()=> setMode('realtime'));
+
+  const muteBtn = document.getElementById('muteBtn');
+  muteBtn.addEventListener('click', ()=>{
+    ensureAudio();
+    soundOn = !soundOn;
+    muteBtn.innerHTML = soundOn ? '&#128266;' : '&#128263;';
+  });
+
+  btnAccuracy.addEventListener('click', ()=>{
+    if(accuracyActive) return;
+    if(playerName){
+      startAccuracyTest();
+      return;
+    }
+    nameInput.value = '';
+    startTestBtn.disabled = true;
+    nameOverlay.classList.remove('hidden');
+  });
+
+  nameInput.addEventListener('input', ()=>{
+    startTestBtn.disabled = !nameInput.value.trim();
+  });
+  nameInput.addEventListener('keydown', e=>{
+    if(e.key === 'Enter' && !startTestBtn.disabled) startTestBtn.click();
+  });
+
+  startTestBtn.addEventListener('click', ()=>{
+    playerName = nameInput.value.trim().slice(0,20) || 'Anonymous';
+    try{ sessionStorage.setItem(SESSION_NAME_KEY, playerName); }catch(e){}
+    showWelcome(playerName);
+    nameOverlay.classList.add('hidden');
+    startAccuracyTest();
+  });
+
+  document.getElementById('completeBtn').addEventListener('click', ()=>{
+    resultOverlay.classList.add('hidden');
+    setMode('delayed');
+  });
+
+  document.getElementById('replayBtn').addEventListener('click', ()=>{
+    resultOverlay.classList.add('hidden');
+    startAccuracyTest(REPLAY_DURATION, true);
+  });
+
+  function fmtClock(ms){
+    const s = Math.max(0, Math.ceil(ms/1000));
+    return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  }
+
+  let isReplayRound = false;
+
+  function startAccuracyTest(duration, isReplay){
+    duration = duration || TEST_DURATION;
+    isReplayRound = !!isReplay;
+    gameMode = 'accuracy';
+    btnDelayed.classList.remove('active');
+    btnRealtime.classList.remove('active');
+    btnAccuracy.classList.add('active');
+    logMode.textContent = 'partition: accuracy-test (' + playerName + ')';
+    resetRoundState();
+    accuracyActive = true;
+    accuracyTimeLeft = duration;
+    setButtonsDisabled(true);
+    log('info', 'accuracy test started for ' + playerName + ' \u2014 ' + fmtClock(duration) + ' on the clock, random batched/real-time per duck');
+    showBanner(playerName + ', go! Green = instant, red = 3s delay');
+  }
+
+  function endAccuracyTest(){
+    accuracyActive = false;
+    setButtonsDisabled(false);
+    const acc = shots ? Math.round(hits/shots*100) : 0;
+    log('info', 'accuracy test ended for ' + playerName + ' \u2014 score ' + score + ', accuracy ' + acc + '%');
+    saveScore(playerName, score, hits, shots, acc);
+    showResults(acc);
+  }
+
+  function saveScore(name, score, hits, shots, acc){
+    let list = [];
+    try{ list = JSON.parse(localStorage.getItem(LB_KEY)) || []; }catch(e){ list = []; }
+    list.push({ name, score, hits, shots, acc, date: new Date().toLocaleDateString() });
+    list.sort((a,b)=> b.acc - a.acc || b.hits - a.hits || b.score - a.score);
+    list = list.slice(0, 10);
+    try{ localStorage.setItem(LB_KEY, JSON.stringify(list)); }catch(e){}
+    renderLeaderboard();
+  }
+
+  function renderLeaderboard(){
+    let list = [];
+    try{ list = JSON.parse(localStorage.getItem(LB_KEY)) || []; }catch(e){ list = []; }
+    const tbody = document.getElementById('lbBody');
+    tbody.innerHTML = '';
+    if(!list.length){
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No runs yet. Play the accuracy test to set the first score.</td></tr>';
+      return;
+    }
+    list.forEach((row, i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>'+(i+1)+'</td><td>'+escapeHtml(row.name)+'</td><td>'+row.acc+'%</td><td>'+row.hits+'/'+row.shots+'</td><td>'+row.score+'</td><td>'+row.date+'</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(s){
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function showResults(acc){
+    document.getElementById('resultName').textContent = playerName + "'s hunt";
+    document.getElementById('resScore').textContent = score;
+    document.getElementById('resAcc').textContent = acc + '%';
+    document.getElementById('resHits').textContent = hits + '/' + shots;
+    const db = breakdown.delayed, rt = breakdown.realtime;
+    const dAcc = db.shots ? Math.round(db.hits/db.shots*100) : 0;
+    const rAcc = rt.shots ? Math.round(rt.hits/rt.shots*100) : 0;
+    document.getElementById('resultBreakdown').innerHTML =
+      '<span class="swatch" style="background:#E8543C"></span>Batched: ' + db.hits + '/' + db.shots + ' (' + dAcc + '%) &nbsp; ' +
+      '<span class="swatch" style="background:#5FA57A"></span>Real-time: ' + rt.hits + '/' + rt.shots + ' (' + rAcc + '%)';
+    document.getElementById('replayBtn').style.display = isReplayRound ? 'none' : '';
+    resultOverlay.classList.remove('hidden');
+  }
+
+  function spawnDuck(){
+    const fromLeft = Math.random() < 0.5;
+    const y = 60 + Math.random() * (HORIZON - 140);
+    const isPriority = Math.random() < 0.15;
+    const baseSpeed = 1.4 + Math.random()*1.3;
+    const speed = isPriority ? baseSpeed * 1.6 : baseSpeed;
+    const procMode = gameMode === 'accuracy' ? (Math.random() < 0.5 ? 'delayed' : 'realtime') : gameMode;
+    ducks.push({
+      id: duckId++, x: fromLeft ? -30 : W+30, y: y, baseY: y,
+      vx: fromLeft ? speed : -speed, bob: Math.random()*Math.PI*2,
+      bobSpeed: 0.05 + Math.random()*0.02, flap: 0,
+      state: 'flying', fallVy: 0, procMode: procMode,
+      variant: isPriority ? 'priority' : 'normal',
+      hitRadius: isPriority ? 22 : 34,
+      points: isPriority ? 30 : 10
+    });
+  }
+
+  function dist(x1,y1,x2,y2){ return Math.hypot(x1-x2, y1-y2); }
+
+  function recordShotStat(kind, wasHit){
+    if(gameMode !== 'accuracy') return;
+    breakdown[kind].shots++;
+    if(wasHit) breakdown[kind].hits++;
+  }
+
+  function resolveShot(clickX, clickY, kind){
+    shots++;
+
+    // Scan for any currently-flying duck near the click point, rather than a
+    // duck locked in at click time. This is what rewards "leading" a target in
+    // batched mode: aim where the duck will be, and if one is there when the
+    // queued shot is finally consumed, it's a hit.
+    let target = null, best = 9999;
+    for(const d of ducks){
+      if(d.state !== 'flying') continue;
+      const dd = dist(clickX, clickY, d.x, d.y);
+      if(dd <= d.hitRadius && dd < best){ best = dd; target = d; }
+    }
+
+    if(!target){
+      streak = 0;
+      log('miss', '['+kind+'] no duck near (' + Math.round(clickX) + ',' + Math.round(clickY) + ') at consume-time');
+      floaters.push({x:clickX,y:clickY,t:0,text:'MISS'});
+      recordShotStat(kind, false);
+      sfxMiss();
+      updateStats();
+      return;
+    }
+
+    hits++;
+    const priorMult = comboMultiplier(streak);
+    streak++;
+    const mult = comboMultiplier(streak);
+    const awarded = Math.round(target.points * mult);
+    score += awarded;
+    target.state = 'falling'; target.fallVy = 1;
+    log('hit', '['+kind+']'+(target.variant==='priority' ? ' [priority]' : '')+' duck #' + target.id + ' confirmed hit (offset ' + Math.round(best) + 'px, +' + awarded + ')');
+    floaters.push({x:target.x, y:target.y, t:0, text:'+'+awarded, color: target.variant==='priority' ? 'gold' : 'green'});
+    if(mult > priorMult){
+      floaters.push({x:target.x, y:target.y-24, t:0, text:'COMBO \u00d7'+mult, color:'combo'});
+      sfxCombo();
+    } else {
+      sfxHit();
+    }
+    recordShotStat(kind, true);
+    updateStats();
+  }
+
+  canvas.addEventListener('mousemove', e=>{
+    const r = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - r.left) * (W / r.width);
+    mouse.y = (e.clientY - r.top) * (H / r.height);
+  });
+
+  canvas.addEventListener('click', e=>{
+    if(gameMode === 'accuracy' && !accuracyActive) return;
+    ensureAudio();
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (W / r.width);
+    const y = (e.clientY - r.top) * (H / r.height);
+
+    // Only used to pick which processing pipeline a click enters in accuracy
+    // mode (which duck's color was under the cursor) -- not used to lock in
+    // the eventual hit target, so leading a duck in batched mode still works.
+    let clickedDuck = null, best = 9999;
+    for(const d of ducks){
+      if(d.state !== 'flying') continue;
+      const dd = dist(x,y,d.x,d.y);
+      if(dd < 40 && dd < best){ best = dd; clickedDuck = d; }
+    }
+
+    muzzleFlash = {x, y, t: 0};
+    sfxShot();
+    const kind = clickedDuck ? clickedDuck.procMode : (gameMode === 'accuracy' ? (Math.random()<0.5?'delayed':'realtime') : gameMode);
+
+    if(kind === 'realtime'){
+      log('queued', 'click produced @ (' + Math.round(x) + ',' + Math.round(y) + ') \u2192 ['+kind+'] consumed instantly');
+      resolveShot(x, y, kind);
+    } else {
+      log('queued', 'click produced @ (' + Math.round(x) + ',' + Math.round(y) + ') \u2192 ['+kind+'] queued, 3000ms until consume');
+      sfxQueued();
+      pending.push({x, y, resolveAt: Date.now() + 3000, marked:false, kind});
+    }
+  });
+
+  function update(now, dt){
+    const spawningAllowed = !(gameMode === 'accuracy' && !accuracyActive);
+    if(spawningAllowed && now - lastSpawn > 1600 && ducks.filter(d=>d.state==='flying').length < 5){
+      if(Math.random() < 0.55){ spawnDuck(); lastSpawn = now; }
+    }
+
+    for(const d of ducks){
+      if(d.state === 'flying'){
+        d.x += d.vx * dt * 0.06;
+        d.bob += d.bobSpeed;
+        d.y = d.baseY + Math.sin(d.bob) * 14;
+        d.flap += d.variant === 'priority' ? 0.4 : 0.25;
+      } else if(d.state === 'falling'){
+        d.fallVy += 0.5;
+        d.y += d.fallVy;
+        d.x += d.vx * 0.3;
+        if(d.y > HORIZON + 20) d.state = 'gone';
+      }
+    }
+    ducks = ducks.filter(d => d.state !== 'gone' && d.x > -60 && d.x < W+60);
+
+    const nowMs = Date.now();
+    for(const p of pending){
+      if(!p.marked && nowMs >= p.resolveAt){
+        p.marked = true;
+        sfxConsume();
+        resolveShot(p.x, p.y, p.kind);
+      }
+    }
+    pending = pending.filter(p => !p.marked);
+
+    for(const f of floaters) f.t += dt;
+    floaters = floaters.filter(f => f.t < 900);
+
+    if(muzzleFlash){
+      muzzleFlash.t += dt;
+      if(muzzleFlash.t > 150) muzzleFlash = null;
+    }
+
+    if(gameMode === 'accuracy' && accuracyActive){
+      accuracyTimeLeft -= dt;
+      if(accuracyTimeLeft <= 0){
+        accuracyTimeLeft = 0;
+        endAccuracyTest();
+      }
+      updateStats();
+    }
+  }
+
+  function drawSky(){
+    const g = ctx.createLinearGradient(0,0,0,HORIZON);
+    g.addColorStop(0, '#0F3A38');
+    g.addColorStop(0.6, '#256158');
+    g.addColorStop(1, '#E8A33D');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,HORIZON);
+    ctx.fillStyle = 'rgba(242,233,216,0.85)';
+    ctx.beginPath();
+    ctx.arc(W*0.82, HORIZON*0.28, 26, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#22392E';
+    ctx.fillRect(0, HORIZON, W, H-HORIZON);
+    ctx.fillStyle = '#152A20';
+    ctx.beginPath();
+    ctx.moveTo(0, HORIZON);
+    for(let x=0;x<=W;x+=40){ ctx.lineTo(x, HORIZON - 6 - Math.sin(x*0.05)*5); }
+    ctx.lineTo(W,HORIZON); ctx.closePath(); ctx.fill();
+  }
+
+  function duckBodyColor(d){
+    if(gameMode !== 'accuracy') return '#3B2A1E';
+    return d.procMode === 'realtime' ? '#4C8F68' : '#B23E2C';
+  }
+  function duckWingColor(d){
+    if(gameMode !== 'accuracy') return '#2C1F16';
+    return d.procMode === 'realtime' ? '#396B4C' : '#822D20';
+  }
+
+  function drawDuck(d){
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    const facingRight = d.vx > 0;
+    if(d.state === 'falling'){ ctx.rotate(Math.min(d.fallVy*0.05, 1.4)); }
+    const facing = facingRight ? 1 : -1;
+    const sizeScale = d.variant === 'priority' ? 0.82 : 1;
+    ctx.scale(facing * sizeScale, sizeScale);
+
+    ctx.fillStyle = duckBodyColor(d);
+    ctx.beginPath();
+    ctx.ellipse(0,0, 20, 12, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    const flapY = d.state==='flying' ? Math.sin(d.flap)*10 : -6;
+    ctx.fillStyle = duckWingColor(d);
+    ctx.beginPath();
+    ctx.ellipse(-2, flapY*0.3, 12, 6, -0.3, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = duckBodyColor(d);
+    ctx.beginPath();
+    ctx.arc(17, -8, 7, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#D9A441';
+    ctx.beginPath();
+    ctx.moveTo(23,-8); ctx.lineTo(31,-6); ctx.lineTo(23,-4);
+    ctx.closePath(); ctx.fill();
+
+    ctx.fillStyle = '#F2E9D8';
+    ctx.beginPath();
+    ctx.arc(19,-10,1.6,0,Math.PI*2);
+    ctx.fill();
+
+    if(d.variant === 'priority' && d.state === 'flying'){
+      ctx.strokeStyle = '#F0C848';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 27, 18, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.fillStyle = '#F0C848';
+      ctx.beginPath();
+      ctx.moveTo(0,-34); ctx.lineTo(4,-29); ctx.lineTo(0,-24); ctx.lineTo(-4,-29);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawPendingMarkers(){
+    const nowMs = Date.now();
+    for(const p of pending){
+      const remain = Math.max(0, p.resolveAt - nowMs);
+      const frac = 1 - remain/3000;
+      ctx.save();
+      ctx.strokeStyle = '#D9A441';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 16, -Math.PI/2, -Math.PI/2 + frac*Math.PI*2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(217,164,65,0.35)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 16, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.fillStyle = '#D9A441';
+      ctx.font = '10px IBM Plex Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.ceil(remain/1000)+'s', p.x, p.y+3);
+      ctx.restore();
+    }
+  }
+
+  function drawFloaters(){
+    for(const f of floaters){
+      const alpha = 1 - f.t/900;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0,alpha);
+      let color = '#5FA57A';
+      if(f.text === 'MISS') color = '#E8543C';
+      else if(f.color === 'gold') color = '#F0C848';
+      else if(f.color === 'combo') color = '#D9A441';
+      ctx.fillStyle = color;
+      ctx.font = 'bold 15px IBM Plex Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y - f.t*0.05);
+      ctx.restore();
+    }
+  }
+
+  function drawCrosshair(){
+    ctx.save();
+    ctx.strokeStyle = '#E8543C';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 13, 0, Math.PI*2);
+    ctx.moveTo(mouse.x-19, mouse.y); ctx.lineTo(mouse.x-7, mouse.y);
+    ctx.moveTo(mouse.x+7, mouse.y); ctx.lineTo(mouse.x+19, mouse.y);
+    ctx.moveTo(mouse.x, mouse.y-19); ctx.lineTo(mouse.x, mouse.y-7);
+    ctx.moveTo(mouse.x, mouse.y+7); ctx.lineTo(mouse.x, mouse.y+19);
+    ctx.stroke();
+    ctx.restore();
+
+    if(muzzleFlash){
+      ctx.save();
+      ctx.globalAlpha = 1 - muzzleFlash.t/150;
+      ctx.strokeStyle = '#F2E9D8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(muzzleFlash.x, muzzleFlash.y, 22 + muzzleFlash.t*0.2, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function draw(){
+    drawSky();
+    for(const d of ducks) drawDuck(d);
+    drawPendingMarkers();
+    drawFloaters();
+    drawCrosshair();
+  }
+
+  let last = performance.now();
+  function loop(now){
+    const dt = Math.min(now-last, 40);
+    last = now;
+    update(now, dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  try{
+    const savedName = sessionStorage.getItem(SESSION_NAME_KEY);
+    if(savedName){
+      playerName = savedName;
+      showWelcome(playerName);
+    }
+  }catch(e){}
+
+  log('info', 'consumer started \u2014 mode: batched (3000ms lag)');
+  updateStats();
+  renderLeaderboard();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
